@@ -4,9 +4,7 @@ from torchvision import models
 import torch.nn.functional as F
 from torchvision.transforms import functional as TF
 
-
 class DeepLabV3Plus(nn.Module):
-
     def __init__(self, num_classes):
         super(DeepLabV3Plus, self).__init__()
 
@@ -16,7 +14,7 @@ class DeepLabV3Plus(nn.Module):
         # Instantiate the ASPP module
         self.aspp = ASPP(in_channels=2048, out_channels=256, atrous_rates=[6, 12, 18])
 
-        self.decoder = Decoder(in_channels=256, out_channels=48)
+        self.decoder = Decoder(in_channels=256 + 48, out_channels=256, num_classes=num_classes)
 
         # Add an extra 1x1 conv layer to match the input size to Decoder
         self.extra_conv = nn.Sequential(
@@ -33,22 +31,19 @@ class DeepLabV3Plus(nn.Module):
 
         # ASPP module
         high_level_features = self.aspp(high_level_features)
+        high_level_features = high_level_features.unsqueeze(2).unsqueeze(3)  # 转换成4D Tensor
 
-        # 增加一个新的维度
-        low_level_features = self.extra_conv(x).unsqueeze(2)
+        # Extra conv layer
+        low_level_features = self.extra_conv(x)
+        low_level_features = self.conv1(low_level_features)
 
-        # Decoder: Upsampling + Concatenation + Convolution
-        low_level_features_shape = low_level_features.shape
-        high_level_features_shape = high_level_features.shape
-        x = self.decoder(torch.cat([low_level_features.expand(
-            low_level_features_shape[0], low_level_features_shape[1], high_level_features_shape[2],
-            high_level_features_shape[3]
-        ), high_level_features], dim=1))
-        x = nn.functional.interpolate(x, scale_factor=4, mode='bilinear', align_corners=True)
+        # Decoder
+        decoder_output = self.decoder(torch.cat((high_level_features, low_level_features), dim=1))
+        x = nn.functional.interpolate(decoder_output, size=x.size()[2:], mode='bilinear', align_corners=True)
 
         return x
 
-
+    
 class ASPPConv(nn.Sequential):
     def __init__(self, in_channels, out_channels, dilation):
         modules = [
@@ -57,7 +52,6 @@ class ASPPConv(nn.Sequential):
             nn.ReLU()
         ]
         super().__init__(*modules)
-
 
 class ASPPPooling(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -76,7 +70,6 @@ class ASPPPooling(nn.Module):
         pool = nn.functional.interpolate(pool, size=(h, w), mode='bilinear', align_corners=True)
         return pool
 
-
 class ASPP(nn.Module):
     def __init__(self, in_channels, out_channels, atrous_rates):
         super().__init__()
@@ -94,6 +87,7 @@ class ASPP(nn.Module):
             nn.Dropout(0.5)
         )
 
+        
     def forward(self, x):
         aspp_feature = []
         for aspp_conv in self.aspp_convs:
@@ -116,21 +110,14 @@ class ASPP(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, num_classes):
         super(Decoder, self).__init__()
-
+        
         self.conv1 = nn.Conv2d(in_channels, 48, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(48)
         self.relu = nn.ReLU()
 
-        self.last_conv = nn.Sequential(
-            nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.Conv2d(256, out_channels, kernel_size=1, stride=1))
+        self.conv_last = nn.Conv2d(out_channels, num_classes, kernel_size=1, stride=1)
 
     def forward(self, x):
         x = self.conv1(x)
