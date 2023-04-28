@@ -70,43 +70,45 @@ class ASPPPooling(nn.Module):
         return pool
 
 class ASPP(nn.Module):
-    def __init__(self, in_channels, out_channels, atrous_rates):
-        super().__init__()
-
-        self.aspp_convs = nn.ModuleList()
-        for rate in atrous_rates:
-            self.aspp_convs.append(ASPPConv(in_channels, out_channels, rate))
-
-        self.global_pool = ASPPPooling(in_channels, out_channels)
-
-        self.output_conv = nn.Sequential(
-            nn.Conv2d(out_channels * (len(atrous_rates) + 1), out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(),
-            nn.Dropout(0.5)
-        )
-
-        
-    def forward(self, x):
-        aspp_feature = []
-        for aspp_conv in self.aspp_convs:
-            aspp_feature.append(aspp_conv(x))
-        global_feature = self.global_pool(x)
-        aspp_feature.append(global_feature)
-        aspp_cat = torch.cat(aspp_feature, dim=1)
-        output = self.output_conv(aspp_cat)
-        return output
-
-    def forward(self, x):
-        aspp_feature = []
-        for aspp_conv in self.aspp_convs:
-            aspp_feature.append(aspp_conv(x))
-        global_feature = self.global_pool(x)
-        aspp_feature.append(global_feature)
-        aspp_cat = torch.cat(aspp_feature, dim=1)
-        output = self.output_conv(aspp_cat)
-        return output
-
+      def __init__(self, in_channels, out_channels, atrous_rates):
+        super(ASPP, self).__init__()
+    
+        # ASPP encoding
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[0], dilation=atrous_rates[0])
+        self.conv3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[1], dilation=atrous_rates[1])
+        self.conv4 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[2], dilation=atrous_rates[2])
+        self.conv5 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[3], dilation=atrous_rates[3])
+    
+        # Output encoding
+        self.conv_output = nn.Conv2d(out_channels * 5, out_channels, kernel_size=1, stride=1)
+    
+        # Normalization
+        self.batch_norm = nn.BatchNorm2d(out_channels)
+    
+        # ReLU
+        self.ReLU = nn.ReLU()
+    
+      def forward(self, x):
+        # ASPP encoding
+        out1 = self.conv1(x)
+        out2 = self.conv2(x)
+        out3 = self.conv3(x)
+        out4 = self.conv4(x)
+        out5 = self.conv5(x)
+    
+        # Concatenate and downsize
+        out1 = nn.functional.interpolate(out1, size=(out5.size()[2], out5.size()[3]), mode='bilinear', align_corners=True)
+        out = torch.cat((out1, out2, out3, out4, out5), dim=1)
+    
+        # Output encoding and normalization
+        out = self.conv_output(out)
+        out = self.batch_norm(out)
+    
+        # ReLU
+        out = self.ReLU(out)
+    
+        return out
 
 class Decoder(nn.Module):
     def __init__(self, in_channels, out_channels, num_classes):
