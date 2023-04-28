@@ -70,44 +70,63 @@ class ASPPPooling(nn.Module):
         return pool
 
 class ASPP(nn.Module):
-      def __init__(self, in_channels, out_channels, atrous_rates):
+    def __init__(self, in_channels, out_channels, atrous_rates):
         super(ASPP, self).__init__()
-    
-        # ASPP encoding
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1)
-        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[0], dilation=atrous_rates[0])
-        self.conv3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[1], dilation=atrous_rates[1])
-        self.conv4 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[2], dilation=atrous_rates[2])
-        self.conv5 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[3], dilation=atrous_rates[3])
-    
-        # Output encoding
-        self.conv_output = nn.Conv2d(out_channels * 5, out_channels, kernel_size=1, stride=1)
-    
-        # Normalization
-        self.batch_norm = nn.BatchNorm2d(out_channels)
-    
-        # ReLU
-        self.ReLU = nn.ReLU()
-    
-      def forward(self, x):
-        # ASPP encoding
+
+        # Error handling of atrous_rates
+        if len(atrous_rates) != 3:
+            raise ValueError("atrous rates must be length 3.")
+
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=atrous_rates[0], dilation=atrous_rates[0]),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=atrous_rates[1], dilation=atrous_rates[1]),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=atrous_rates[2], dilation=atrous_rates[2]),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+        self.conv5_pool = nn.Sequential(
+            nn.AdaptiveAvgPool2d(output_size=(1, 1)),
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+        self.conv_output = nn.Sequential(
+            nn.Conv2d(in_channels=out_channels * 5, out_channels=out_channels, kernel_size=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
         out1 = self.conv1(x)
         out2 = self.conv2(x)
         out3 = self.conv3(x)
         out4 = self.conv4(x)
-        out5 = self.conv5(x)
-    
-        # Concatenate and downsize
-        out1 = nn.functional.interpolate(out1, size=(out5.size()[2], out5.size()[3]), mode='bilinear', align_corners=True)
+        out5 = self.conv5_pool(x)
+
+        h, w = out5.shape[2:]
+        out5 = nn.functional.interpolate(out5, size=(h, w), mode='bilinear', align_corners=True)
+
         out = torch.cat((out1, out2, out3, out4, out5), dim=1)
-    
-        # Output encoding and normalization
         out = self.conv_output(out)
-        out = self.batch_norm(out)
-    
-        # ReLU
-        out = self.ReLU(out)
-    
+
         return out
 
 class Decoder(nn.Module):
