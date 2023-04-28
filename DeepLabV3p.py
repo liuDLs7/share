@@ -42,7 +42,6 @@ class DeepLabV3Plus(nn.Module):
         x = nn.functional.interpolate(decoder_output, size=x.size()[2:], mode='bilinear', align_corners=True)
 
         return x
-
     
 class ASPPConv(nn.Sequential):
     def __init__(self, in_channels, out_channels, dilation):
