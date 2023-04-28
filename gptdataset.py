@@ -35,7 +35,13 @@ class MyDataset(Dataset):
         # Convert label to tensor
         label = torch.from_numpy(np.array(label)).long()
 
-        return img.transpose(2, 0, 1), label
+        with Image.open(img_path).convert('RGB') as img:
+            img_tensor = torch.Tensor(img)
+            img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)  # 将维度转变为 [1, C, H, W]
+
+        label = self.labels[index]
+
+        return img_tensor, label
 
     def __len__(self):
         return len(self.train_list)
