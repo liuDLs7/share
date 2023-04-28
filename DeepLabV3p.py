@@ -112,23 +112,25 @@ class ASPP(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, in_channels, out_channels, num_classes):
         super(Decoder, self).__init__()
-        
-        self.conv1 = nn.Conv2d(in_channels, 48, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(48)
-        self.relu = nn.ReLU()
 
-        self.conv_last = nn.Conv2d(out_channels, num_classes, kernel_size=1, stride=1)
+        self.conv1 = nn.Conv2d(in_channels, 48, kernel_size=1, stride=1)
+        self.conv2 = nn.Conv2d(304, 256, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout2d = nn.Dropout2d(p=0.5)
+        self.conv_last = nn.Conv2d(256, num_classes, kernel_size=1, stride=1)
 
     def forward(self, x):
         x = self.conv1(x)
-        x = self.bn1(x)
+
+        x = nn.functional.interpolate(x, size=(x.size()[2]*4, x.size()[3]*4), mode='bilinear', align_corners=True)
+
+        x = torch.cat([x, low_level_features], dim=1)
+        x = self.conv2(x)
+        x = self.bn2(x)
         x = self.relu(x)
+        x = self.dropout2d(x)   # 在这里应用 dropout2d
 
-        height, width = x.shape[2:]
-        pool = nn.functional.avg_pool2d(x, (height, width))
-        pool = nn.functional.interpolate(pool, (height, width), mode='bilinear', align_corners=True)
-
-        x = torch.cat([x, pool], dim=1)
-        x = self.last_conv(x)
+        x = self.conv_last(x)
 
         return x
